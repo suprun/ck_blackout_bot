@@ -15,16 +15,17 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
-
+import aiohttp
 # === .env ===
 load_dotenv()
 
 # === Config ===
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = os.getenv("BOT_START_TOKEN")
 DB_PATH = os.getenv("DATABASE_PATH", "users.db")
-MINIAPP_URL = os.getenv("MINIAPP_URL", "https://cherkasyoblenergo.com/static/perelik-gpv")
+MINIAPP_URL = os.getenv("MINIAPP_URL", "https://www.cherkasyoblenergo.com/off")
+PDF_URL = os.getenv("PDF_URL", "https://storage.googleapis.com/ck_blackout_pdf/")
 
-QUEUE_EMOJI = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣"]
+QUEUE_EMOJI = ["🔴1️⃣", "🟠2️⃣", "🟢3️⃣", "🔵4️⃣", "🟣5️⃣", "🟡6️⃣"]
 GROUP_LINKS = {f"{i}_{j}": f"https://t.me/ck_blackout_{i}_{j}" for i in range(1, 7) for j in (1, 2)}
 
 # === Logging ===
@@ -61,17 +62,16 @@ def sub_keyboard(queue: int):
             InlineKeyboardButton("Ⅰ підчерга", callback_data=f"sub_{queue}_1"),
             InlineKeyboardButton("Ⅱ підчерга", callback_data=f"sub_{queue}_2"),
         ],
-        [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_start"), InlineKeyboardButton("🏠 Головне меню", callback_data="main_menu")],
+        [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_start")], [InlineKeyboardButton("🏠 Головне меню", callback_data="main_menu")],
     ])
 
 def subscription_keyboard(key: str):
     group_url = GROUP_LINKS.get(key, "#")
     queue, sub = key.split("_")
-    queue_label = f"{QUEUE_EMOJI[int(queue)-1]} {'Ⅰ' if sub=='1' else 'Ⅱ'} підчерга"
+    queue_label = f"{QUEUE_EMOJI[int(queue)-1]} черга {'Ⅰ' if sub=='1' else 'Ⅱ'} підчерга"
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"💬 Отримувати сповіщення в каналі ({queue_label})", url=group_url)],
-        [InlineKeyboardButton("💖 Підтримати проєкт", callback_data="support_project_from_sub")],
-        [InlineKeyboardButton("⬅️ Назад", callback_data=f"back_to_queue_{queue}"), InlineKeyboardButton("🏠 Головне меню", callback_data="main_menu")],
+        [InlineKeyboardButton(f"💬 Перейти в канал ({queue_label})", url=group_url)],        
+        [InlineKeyboardButton("⬅️ Назад", callback_data=f"back_to_queue_{queue}"), InlineKeyboardButton("🏠 Головне меню", callback_data="main_menu")],[InlineKeyboardButton("💖 Підтримати проєкт", callback_data="support_project_from_sub")],
     ])
 
 def support_keyboard(back_cb: str):
@@ -84,7 +84,9 @@ def support_keyboard(back_cb: str):
 def unknown_keyboard(back_cb: str):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔍 Знайти адресу (Mini App)", web_app={"url": MINIAPP_URL})],
+        [InlineKeyboardButton("📄 Скачати графіки в PDF", callback_data="show_pdfs")],
         [InlineKeyboardButton("⬅️ Назад", callback_data=back_cb)],
+        [InlineKeyboardButton("🏠 Головне меню", callback_data="main_menu")],
     ])
 
 def reply_main_menu():
@@ -98,7 +100,7 @@ def channels_keyboard():
     rows = []
     for key, url in GROUP_LINKS.items():
         q, s = key.split("_")
-        label = f"{QUEUE_EMOJI[int(q)-1]} {'Ⅰ' if s=='1' else 'Ⅱ'} черга"
+        label = f"{QUEUE_EMOJI[int(q)-1]} черга {'Ⅰ' if s=='1' else 'Ⅱ'} підчерга"
         rows.append([InlineKeyboardButton(label, url=url)])
     return InlineKeyboardMarkup(rows)
 
@@ -119,7 +121,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await db.commit()
 
     await update.message.reply_text(
-        f"👋 Вітаю, {user.first_name or 'друже'}!\n⬇️ Оберіть свою чергу:",
+        f"👋 Вітаю, {user.first_name or 'друже'}!\nПотрібно обрати свою чергу і підчергу\n⬇️ Спочатку оберіть чергу:",
         reply_markup=start_keyboard(),
     )
 
@@ -128,7 +130,7 @@ async def queue_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     queue = int(query.data.split("_")[1])
     await query.edit_message_text(
-        f"📊 Ви обрали {QUEUE_EMOJI[queue-1]} чергу. Тепер виберіть підчергу:",
+        f"📊 Ви обрали {QUEUE_EMOJI[queue-1]} чергу. \nТепер виберіть підчергу:",
         reply_markup=sub_keyboard(queue),
     )
 
@@ -144,7 +146,7 @@ async def sub_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await db.commit()
     await query.edit_message_text(
-        f"🔌 Ви обрали {QUEUE_EMOJI[int(queue)-1]} чергу {'Ⅰ' if sub=='1' else 'Ⅱ'} підчергу.",
+        f"🔌 ОК, перейдіть в канал \n«{QUEUE_EMOJI[int(queue)-1]} черга {'Ⅰ' if sub=='1' else 'Ⅱ'} підчерга», \nщоб отримувати сповіщення про відключення електроенергії:",
         reply_markup=subscription_keyboard(key),
     )
 
@@ -185,7 +187,7 @@ async def unknown_queue(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     back_cb = "back_to_start"
     await query.edit_message_text(
-        "🔍 Не знаєте свою чергу? Скористайтеся пошуком у Mini App:",
+        "🤷‍♂️ Не знаєте свою чергу? \nЗнайдіть свою адресу у графіку відключень:",
         reply_markup=unknown_keyboard(back_cb),
     )
 
@@ -213,7 +215,7 @@ async def back_to_support_prev(update: Update, context: ContextTypes.DEFAULT_TYP
     if row and row[0] and row[1]:
         key = f"{row[0]}_{row[1]}"
         await query.edit_message_text(
-            f"🔌 Ви обрали {QUEUE_EMOJI[int(row[0])-1]} чергу {'Ⅰ' if row[1]==1 else 'Ⅱ'} підчергу.",
+            f"🔌 ОК, перейдіть в канал \n«{QUEUE_EMOJI[int(row[0])-1]} черга {'Ⅰ' if row[1]==1 else 'Ⅱ'} підчерга», \nщоб отримувати сповіщення про відключення електроенергії.",
             reply_markup=subscription_keyboard(key),
         )
     else:
@@ -236,12 +238,75 @@ async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "💬 Список каналів":
         await update.message.reply_text("📢 Канали для сповіщень:", reply_markup=channels_keyboard())
     elif text == "🔍 Знайти адресу":
-        await update.message.reply_text("🔍 Відкрити пошук адреси:", reply_markup=unknown_keyboard("back_to_start"))
+        await update.message.reply_text("🤷‍♂️ Не знаєте свою чергу? \nЗнайдіть свою адресу у графіку відключень:", reply_markup=unknown_keyboard("back_to_start"))
     elif text == "ℹ️ Про бота":
         await update.message.reply_text(
-            "ℹ️ Бот допомагає відстежувати графік відключень у Черкаській області.\nРозробка: @project_co_ua",
+            "ℹ️ Бот допомагає відстежувати графіки відключень електропостачання у Черкаській області.\n\nНе є офіційним джерелом інформації",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💖 Підтримати проєкт", callback_data="support_project_from_about")]]),
         )
+
+async def back_to_about(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        "ℹ️ Бот допомагає відстежувати графік відключень у Черкаській області.\n\nНе є офіційним джерелом інформації",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("💖 Підтримати проєкт", callback_data="support_project_from_about")]
+        ]),
+    )
+
+# === Оновлена клавіатура PDF ===
+def pdf_download_keyboard(back_cb: str):
+    rows = []
+    for i in range(1, 7):
+        for j in (1, 2):
+            emoji = QUEUE_EMOJI[i - 1]
+            label = f"{emoji} {'Ⅰ' if j == 1 else 'Ⅱ'} підчерга"
+            callback = f"download_pdf_{i}{j}"
+            rows.append([InlineKeyboardButton(label, callback_data=callback)])
+    rows.append([InlineKeyboardButton("⬅️ Назад", callback_data=back_cb)])
+    return InlineKeyboardMarkup(rows)
+
+# === Показ списку PDF ===
+async def show_pdfs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        "📄 Виберіть графік черги для завантаження:",
+        reply_markup=pdf_download_keyboard("unknown_queue")
+    )
+
+# === Завантаження PDF-файлу з URL і надсилання користувачу ===
+async def download_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    pdf_id = query.data.replace("download_pdf_", "")
+    pdf_url = f"{PDF_URL}{pdf_id}.pdf"
+
+    # Повідомлення про початок завантаження
+    loading_msg = await query.message.reply_text("⏳ Завантажуємо файл...")
+    pdf_id_for_url = "_".join(str(pdf_id))  # Збереження ідентифікатора для URL
+    print(f"Завантаження PDF: {pdf_url}")
+    # Завантаження файлу через aiohttp
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(pdf_url) as resp:
+                if resp.status == 200:
+                    file_data = await resp.read()
+                    file_name = f"Графік_черга_{pdf_id_for_url}.pdf"
+                    await query.message.reply_document(document=file_data, filename=file_name)
+                else:
+                    await query.message.reply_text("❌ Не вдалося завантажити файл.")
+    except Exception as e:
+        await query.message.reply_text(f"⚠️ Помилка при завантаженні: {e}")
+
+    # Видалити повідомлення "Завантажуємо..."
+    await loading_msg.delete()
+
+# === Реєстрація в main() ===
+
+
 
 # === Main ===
 async def main():
@@ -265,9 +330,14 @@ async def main():
     app.add_handler(CallbackQueryHandler(back_to_start, pattern="^back_to_start$"))
     app.add_handler(CallbackQueryHandler(back_to_queue, pattern="^back_to_queue_"))
     app.add_handler(CallbackQueryHandler(back_to_support_prev, pattern="^back_to_support_prev$"))
+    app.add_handler(CallbackQueryHandler(back_to_about, pattern="^back_to_about$"))
     app.add_handler(CallbackQueryHandler(show_main_menu, pattern="^main_menu$"))
     app.add_handler(PreCheckoutQueryHandler(pre_checkout))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment))
+
+    app.add_handler(CallbackQueryHandler(show_pdfs, pattern="^show_pdfs$"))
+    
+    app.add_handler(CallbackQueryHandler(download_pdf, pattern="^download_pdf_"))
 
     logger.info("Бот запущено з уточненим діалогом підтримки")
     await app.run_polling()

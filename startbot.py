@@ -1,5 +1,7 @@
 import logging
 import sqlite3
+import os
+from dotenv import load_dotenv
 from datetime import datetime
 from telegram import (
     Update,
@@ -17,8 +19,11 @@ from telegram.ext import (
     filters,
 )
 
-# === НАЛАШТУВАННЯ ===
-BOT_TOKEN = "8360852576:AAFRR2sbMqN5_2MriZRnSjboDigXxlTFijM"
+# === .env ===
+load_dotenv()
+
+# === Config ===
+BOT_TOKEN = os.getenv("BOT_START_TOKEN")
 
 # --- створення БД користувачів ---
 conn = sqlite3.connect("users.db", check_same_thread=False)

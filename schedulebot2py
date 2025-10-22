@@ -1,0 +1,243 @@
+import asyncio
+import json
+import logging
+import os
+from datetime import datetime, timedelta, time
+from pathlib import Path
+
+import pytz
+from dotenv import load_dotenv
+from telegram import Bot
+from telegram.constants import ParseMode
+
+# ================== INIT ==================
+load_dotenv()
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+SCHEDULE_FILE = Path(os.getenv("SCHEDULE_FILE", "schedule.json"))
+SCHEDULE_TOMORROW_FILE = Path(os.getenv("SCHEDULE_TOMORROW_FILE", "schedule_tomorrow.json"))
+STATE_FILE = Path("bot_state.json")
+TIMEZONE = pytz.timezone(os.getenv("TIMEZONE", "Europe/Kyiv"))
+
+bot = Bot(token=BOT_TOKEN)
+
+last_schedule_mtime = None
+last_schedule_tomorrow_mtime = None
+current_schedule = {}
+current_schedule_tomorrow = {}
+scheduled_tasks = []
+
+# ================== STATE ==================
+def load_state():
+    if STATE_FILE.exists():
+        try:
+            with open(STATE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+def save_state(state):
+    with open(STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
+
+
+def cleanup_state(state, days: int = 10):
+    cutoff = datetime.now() - timedelta(days=days)
+    new_state = {}
+    for key, value in state.items():
+        try:
+            dt = datetime.strptime(key.split("_")[-1], "%Y-%m-%d_%H:%M")
+            if dt > cutoff:
+                new_state[key] = value
+        except Exception:
+            new_state[key] = value
+    if len(new_state) != len(state):
+        save_state(new_state)
+        logging.info("🧹 Очищено старі записи зі стану (старше %d діб)", days)
+    return new_state
+
+
+bot_state = cleanup_state(load_state())
+
+# ================== HELPERS ==================
+def local_now() -> datetime:
+    return datetime.now(TIMEZONE)
+
+
+def today_timestr_to_datetime(timestr: str, day_offset: int = 0) -> datetime:
+    now = local_now()
+    hour, minute = map(int, timestr.split(":"))
+    date = now.date() + timedelta(days=day_offset)
+    return TIMEZONE.localize(datetime.combine(date, time(hour, minute)))
+
+
+def load_json_file(file_path: Path) -> dict:
+    if not file_path.exists():
+        return {}
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logging.error(f"❌ Помилка читання {file_path}: {e}")
+        return {}
+
+
+def load_schedules() -> tuple[dict, dict, bool]:
+    global last_schedule_mtime, last_schedule_tomorrow_mtime, current_schedule, current_schedule_tomorrow
+
+    changed = False
+
+    if SCHEDULE_FILE.exists():
+        mtime = SCHEDULE_FILE.stat().st_mtime
+        if last_schedule_mtime is None or mtime != last_schedule_mtime:
+            last_schedule_mtime = mtime
+            current_schedule = load_json_file(SCHEDULE_FILE)
+            logging.info("🔁 Оновлено schedule.json")
+            changed = True
+
+    if SCHEDULE_TOMORROW_FILE.exists():
+        mtime_t = SCHEDULE_TOMORROW_FILE.stat().st_mtime
+        if last_schedule_tomorrow_mtime is None or mtime_t != last_schedule_tomorrow_mtime:
+            last_schedule_tomorrow_mtime = mtime_t
+            current_schedule_tomorrow = load_json_file(SCHEDULE_TOMORROW_FILE)
+            logging.info("🔁 Оновлено schedule_tomorrow.json")
+            changed = True
+
+    return current_schedule, current_schedule_tomorrow, changed
+
+
+def schedule_task(coro):
+    task = asyncio.create_task(coro)
+    scheduled_tasks.append(task)
+    return task
+
+
+def cancel_all_scheduled_tasks():
+    alive = 0
+    for t in scheduled_tasks:
+        if not t.done():
+            t.cancel()
+            alive += 1
+    scheduled_tasks.clear()
+    if alive:
+        logging.info(f"🛑 Скасовано {alive} задач(і).")
+
+
+# ================== SCHEDULER ==================
+async def schedule_tasks_for(schedule: dict, day_offset: int = 0):
+    now = local_now()
+    date_str = "сьогодні" if day_offset == 0 else "завтра"
+    logging.info(f"📅 Планування постів на {date_str}...")
+
+    for friendly_name, data in schedule.items():
+        if not isinstance(data, dict):
+            continue
+
+        channel = data.get("channel_id")
+        if not channel:
+            continue
+
+        periods = data.get("periods", [])
+
+        for i, (start_str, end_str) in enumerate(periods):
+            start_dt = today_timestr_to_datetime(start_str, day_offset)
+            end_dt = today_timestr_to_datetime(end_str, day_offset)
+
+            if end_dt <= start_dt:
+                end_dt += timedelta(days=1)
+
+            if end_dt < now:
+                continue
+
+            schedule_task(
+                maybe_post_message(
+                    channel,
+                    friendly_name,
+                    f"⚡ Черга {friendly_name}\n🔴 ВИМКНЕННЯ з {start_dt.strftime('%H:%M')} до {end_dt.strftime('%H:%M')}\n💡 Увімкнення о {end_dt.strftime('%H:%M')} ({date_str})",
+                    start_dt,
+                    f"off_{day_offset}",
+                )
+            )
+
+            next_off = periods[i + 1][0] if i + 1 < len(periods) else None
+            next_text = f"⚡ Черга {friendly_name}\n🟢 СВІТЛО УВІМКНЕНО о {end_dt.strftime('%H:%M')} ({date_str})"
+            if next_off:
+                next_text += f"\n🔴 Наступне вимкнення о {next_off}"
+
+            schedule_task(
+                maybe_post_message(channel, friendly_name, next_text, end_dt, f"on_{day_offset}")
+            )
+
+    logging.info(f"✅ Задачі на {date_str} створено.")
+
+
+async def maybe_post_message(channel_id, friendly_name, text, send_time, event_type):
+    delay = (send_time - local_now()).total_seconds()
+    if delay > 0:
+        try:
+            await asyncio.sleep(delay)
+        except asyncio.CancelledError:
+            return
+
+    key = f"{friendly_name}_{event_type}_{send_time.strftime('%Y-%m-%d_%H:%M')}"
+    if bot_state.get(key):
+        logging.info(f"⏩ Пропущено дубльоване повідомлення: {key}")
+        return
+
+    await post_message(channel_id, text)
+    bot_state[key] = True
+    save_state(bot_state)
+
+
+async def post_message(channel_id, text):
+    try:
+        await bot.send_message(chat_id=channel_id, text=text, parse_mode=ParseMode.HTML)
+        logging.info(f"📤 Повідомлення надіслано у {channel_id}")
+    except Exception as e:
+        logging.error(f"❌ Помилка при відправленні у {channel_id}: {e}")
+
+
+# ================== MAIN ==================
+async def main():
+    logging.info("🚀 Бот запущено.")
+    schedule, schedule_tomorrow, _ = load_schedules()
+
+    await schedule_tasks_for(schedule, 0)
+    if schedule_tomorrow:
+        await schedule_tasks_for(schedule_tomorrow, 1)
+
+    def next_midnight(dt):
+        return (dt + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    rollover_at = next_midnight(local_now())
+
+    while True:
+        await asyncio.sleep(60)
+        schedule, schedule_tomorrow, changed = load_schedules()
+        now = local_now()
+
+        if changed:
+            cancel_all_scheduled_tasks()
+            await schedule_tasks_for(schedule, 0)
+            if schedule_tomorrow:
+                await schedule_tasks_for(schedule_tomorrow, 1)
+            rollover_at = next_midnight(now)
+            continue
+
+        if now >= rollover_at:
+            cancel_all_scheduled_tasks()
+            if SCHEDULE_TOMORROW_FILE.exists():
+                os.remove(SCHEDULE_TOMORROW_FILE)
+                logging.info("🗑️ Видалено schedule_tomorrow.json після опівночі.")
+            await schedule_tasks_for(schedule, 0)
+            schedule, schedule_tomorrow, _ = load_schedules()
+            if schedule_tomorrow:
+                await schedule_tasks_for(schedule_tomorrow, 1)
+            rollover_at = next_midnight(now)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
