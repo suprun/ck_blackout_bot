@@ -100,45 +100,57 @@ def get_halfhour_ids(queue_id: str, intervals: list) -> list:
 
 def recolor_svg(svg_path: Path, colored_ids: set, color_on: str, color_off: str) -> bytes:
     """
-    Фарбує SVG: усі блоки -> color_off, потрібні ID -> color_on
-    Працює і коли <rect> знаходяться всередині <g id="Layer_x0020_1">
+    Фарбує SVG: елементи з ID у colored_ids -> color_on, інші -> color_off.
+    Підтримка:
+      • CorelDRAW: id починаються з "_" (наприклад "_1.1_00a")
+      • Класи (fil1/fil2/...) перекривають fill -> тому завжди виставляємо inline style.
+      • Елементи всередині <g id="Layer_x0020_1">.
     """
+    ns = {"svg": "http://www.w3.org/2000/svg"}
     parser = etree.XMLParser(remove_blank_text=False)
     tree = etree.parse(str(svg_path), parser)
     root = tree.getroot()
 
-    ns = {"svg": "http://www.w3.org/2000/svg"}
+    # Підтримка двох варіантів ID: з "_" і без.
+    # Сформуємо множину з обома формами для швидкої перевірки.
+    wanted = set()
+    for _id in colored_ids:
+        wanted.add(_id)           # "1.1_00a"
+        wanted.add(f"_{_id}")     # "_1.1_00a"
 
-    # спробуємо знайти головний шар
+    # Працюємо тільки в шарі, якщо він є
     layer = root.xpath(".//svg:g[@id='Layer_x0020_1']", namespaces=ns)
-    if layer:
-        elements = layer[0].xpath(".//svg:*[@id]", namespaces=ns)
-    else:
-        elements = root.xpath(".//svg:*[@id]", namespaces=ns)
+    scope = layer[0] if layer else root
 
-    count_total = 0
-    count_colored = 0
+    # Беремо всі елементи, які МАЮТЬ id (rect, path, т.д.)
+    elements = scope.xpath(".//svg:*[@id]", namespaces=ns)
 
+    count_total, count_on = 0, 0
     for el in elements:
         el_id = el.get("id")
         if not el_id:
             continue
-
         count_total += 1
-        color = color_on if el_id in colored_ids else color_off
 
-        # оновити атрибути fill + style
-        el.set("fill", color)
-        style = el.get("style")
-        if style:
-            parts = style.split(";")
-            parts = [p for p in parts if not p.strip().startswith("fill:")]
-            parts.append(f"fill:{color}")
-            el.set("style", ";".join(parts))
-        if el_id in colored_ids:
-            count_colored += 1
+        # Якщо хочете фарбувати тільки прямокутники, раскоментуйте:
+        # if etree.QName(el.tag).localname != "rect":
+        #     continue
 
-    print(f"[✓] Знайдено {count_total} елементів, пофарбовано {count_colored}")
+        target_color = color_on if el_id in wanted else color_off
+
+        # 1) атрибут fill (не завжди достатньо через клас)
+        el.set("fill", target_color)
+
+        # 2) inline style: гарантовано перекриє клас .fil*
+        style = el.get("style") or ""
+        parts = [p for p in style.split(";") if p.strip() and not p.strip().startswith("fill:")]
+        parts.append(f"fill:{target_color}")
+        el.set("style", ";".join(parts))
+
+        if el_id in wanted:
+            count_on += 1
+
+    print(f"[✓] Оброблено елементів: {count_total}, пофарбовано: {count_on}")
     return etree.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
