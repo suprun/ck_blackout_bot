@@ -247,6 +247,6 @@ if __name__ == "__main__":
 
     # === Додаємо текст після рендеру ===
     if TEXT:
-        add_text_to_image(OUTPUT_PNG, TEXT, FONT_PATH, TEXT_COLOR, FONT_SIZE, TEXT_POSITION,x=255,y=863)
+        add_text_to_image(OUTPUT_PNG, TEXT, FONT_PATH, TEXT_COLOR, FONT_SIZE,x=255,y=863)
     else:
         print("[i] Текст для додавання порожній, пропуск.")
