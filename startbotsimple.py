@@ -70,7 +70,7 @@ def subscription_keyboard(key: str):
     queue, sub = key.split("_")
     queue_label = f"{QUEUE_EMOJI[int(queue)-1]} черга {'Ⅰ' if sub=='1' else 'Ⅱ'} підчерга"
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"💬 Перейти в канал ({queue_label})", url=group_url)],        
+        [InlineKeyboardButton(f"💬 Перейти в канал «{queue_label}»", url=group_url)],        
         [InlineKeyboardButton("⬅️ Назад", callback_data=f"back_to_queue_{queue}"), InlineKeyboardButton("🏠 Головне меню", callback_data="main_menu")],[InlineKeyboardButton("💖 Підтримати проєкт", callback_data="support_project_from_sub")],
     ])
 
@@ -121,7 +121,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await db.commit()
 
     await update.message.reply_text(
-        f"👋 Вітаю, {user.first_name or 'друже'}!\nПотрібно обрати свою чергу і підчергу\n⬇️ Спочатку оберіть чергу:",
+        f"👋 Вітаю, {user.first_name or 'друже'}!\nПотрібно обрати свою чергу і підчергу\n\n⬇️ Спочатку оберіть чергу:",
         reply_markup=start_keyboard(),
     )
 
@@ -130,7 +130,7 @@ async def queue_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     queue = int(query.data.split("_")[1])
     await query.edit_message_text(
-        f"📊 Ви обрали {QUEUE_EMOJI[queue-1]} чергу. \nТепер виберіть підчергу:",
+        f"📊 Ви обрали {QUEUE_EMOJI[queue-1]} чергу. \n\nТепер виберіть підчергу:",
         reply_markup=sub_keyboard(queue),
     )
 
@@ -215,7 +215,7 @@ async def back_to_support_prev(update: Update, context: ContextTypes.DEFAULT_TYP
     if row and row[0] and row[1]:
         key = f"{row[0]}_{row[1]}"
         await query.edit_message_text(
-            f"🔌 ОК, перейдіть в канал \n«{QUEUE_EMOJI[int(row[0])-1]} черга {'Ⅰ' if row[1]==1 else 'Ⅱ'} підчерга», \nщоб отримувати сповіщення про відключення електроенергії.",
+            f"ОК, перейдіть в канал \n«{QUEUE_EMOJI[int(row[0])-1]} черга {'Ⅰ' if row[1]==1 else 'Ⅱ'} підчерга», \nщоб отримувати сповіщення про відключення електроенергії.",
             reply_markup=subscription_keyboard(key),
         )
     else:
@@ -261,7 +261,7 @@ def pdf_download_keyboard(back_cb: str):
     for i in range(1, 7):
         for j in (1, 2):
             emoji = QUEUE_EMOJI[i - 1]
-            label = f"{emoji} {'Ⅰ' if j == 1 else 'Ⅱ'} підчерга"
+            label = f"{emoji} черга {'Ⅰ' if j == 1 else 'Ⅱ'} підчерга"
             callback = f"download_pdf_{i}{j}"
             rows.append([InlineKeyboardButton(label, callback_data=callback)])
     rows.append([InlineKeyboardButton("⬅️ Назад", callback_data=back_cb)])
@@ -282,26 +282,26 @@ async def download_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     pdf_id = query.data.replace("download_pdf_", "")
-    pdf_url = f"{PDF_URL}{pdf_id}.pdf"
+    pdf_url = f"https://storage.googleapis.com/ck_blackout_pdf/Графік_черга_{pdf_id}.pdf"
+    file_name = f"Графік_{pdf_id}.pdf"
 
-    # Повідомлення про початок завантаження
+    # Повідомлення про завантаження
     loading_msg = await query.message.reply_text("⏳ Завантажуємо файл...")
-    pdf_id_for_url = "_".join(str(pdf_id))  # Збереження ідентифікатора для URL
-    print(f"Завантаження PDF: {pdf_url}")
-    # Завантаження файлу через aiohttp
+
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(pdf_url) as resp:
+            async with session.head(pdf_url) as resp:
                 if resp.status == 200:
-                    file_data = await resp.read()
-                    file_name = f"Графік_черга_{pdf_id_for_url}.pdf"
-                    await query.message.reply_document(document=file_data, filename=file_name)
+                    # Файл існує → Telegram сам завантажить його напряму
+                    await query.message.reply_document(document=pdf_url, filename=file_name)
+                elif resp.status == 404:
+                    await query.message.reply_text("❌ Файл не знайдено. Можливо, ще не оновили графік.")
                 else:
-                    await query.message.reply_text("❌ Не вдалося завантажити файл.")
+                    await query.message.reply_text(f"⚠️ Помилка доступу до файлу (код {resp.status}).")
     except Exception as e:
-        await query.message.reply_text(f"⚠️ Помилка при завантаженні: {e}")
+        await query.message.reply_text(f"⚠️ Помилка при перевірці файлу: {e}")
 
-    # Видалити повідомлення "Завантажуємо..."
+    # Видаляємо повідомлення про завантаження
     await loading_msg.delete()
 
 # === Реєстрація в main() ===
