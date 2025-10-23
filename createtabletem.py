@@ -97,31 +97,29 @@ def get_halfhour_ids(queue_id: str, intervals: list) -> list:
             continue
     return ids
 
-
-def recolor_svg(svg_path: Path, colored_ids: set, color_on: str, color_off: str) -> bytes:
+def recolor_svg(svg_path: Path, colored_ids: set, color_on: str, color_off: str,
+                stroke_on: str = "#3C414B", stroke_width: float = 0.5) -> bytes:
     """
     Фарбує тільки <rect> у шарі Layer_x0020_1:
-    • Елементи з id у colored_ids → color_on
-    • Інші <rect> з id → color_off
-    • Не чіпає фон, рамки, path, текст тощо
-    • Працює навіть якщо id мають префікс "_"
+      • Елементи з id у colored_ids → color_on + stroke_on
+      • Інші <rect> з id → color_off
+      • Не чіпає інші елементи (path, text, ...).
     """
     ns = {"svg": "http://www.w3.org/2000/svg"}
     parser = etree.XMLParser(remove_blank_text=False)
     tree = etree.parse(str(svg_path), parser)
     root = tree.getroot()
 
-    # Обидва варіанти ID: "1.1_00a" і "_1.1_00a"
+    # Підтримка ID з "_" (CorelDRAW додає підкреслення)
     wanted = set()
     for _id in colored_ids:
         wanted.add(_id)
         wanted.add(f"_{_id}")
 
-    # Шукаємо основний шар (CorelDRAW)
+    # Обмежуємо пошук шаром Layer_x0020_1
     layer = root.xpath(".//svg:g[@id='Layer_x0020_1']", namespaces=ns)
     scope = layer[0] if layer else root
 
-    # Беремо тільки прямокутники, які мають id
     rects = scope.xpath(".//svg:rect[@id]", namespaces=ns)
 
     count_total, count_on = 0, 0
@@ -131,16 +129,28 @@ def recolor_svg(svg_path: Path, colored_ids: set, color_on: str, color_off: str)
             continue
         count_total += 1
 
-        target_color = color_on if el_id in wanted else color_off
+        # Визначаємо кольори
+        is_on = el_id in wanted
+        fill_color = color_on if is_on else color_off
+        stroke_color = stroke_on if is_on else "none"
 
-        # inline fill перекриває класи CorelDRAW (.fil*)
-        el.set("fill", target_color)
+        # Задаємо fill
+        el.set("fill", fill_color)
+
+        # Задаємо stroke лише для активних блоків
+        el.set("stroke", stroke_color)
+        el.set("stroke-width", str(stroke_width))
+
+        # Оновлюємо style, щоб перекрити класи .fil*
         style = el.get("style") or ""
-        parts = [p for p in style.split(";") if p.strip() and not p.strip().startswith("fill:")]
-        parts.append(f"fill:{target_color}")
+        parts = [p for p in style.split(";") if p.strip() and not p.strip().startswith(("fill:", "stroke:"))]
+        parts.append(f"fill:{fill_color}")
+        if is_on:
+            parts.append(f"stroke:{stroke_color}")
+            parts.append(f"stroke-width:{stroke_width}")
         el.set("style", ";".join(parts))
 
-        if el_id in wanted:
+        if is_on:
             count_on += 1
 
     print(f"[✓] Прямокутників знайдено: {count_total}, пофарбовано: {count_on}")
@@ -253,7 +263,7 @@ if __name__ == "__main__":
     if data:
         print(f"[i] З розкладу отримано {len(all_ids_to_color)} ID півгодинних блоків.")
 
-    svg_bytes = recolor_svg(SVG_TEMPLATE, all_ids_to_color, COLOR_ON, COLOR_OFF)
+    svg_bytes = recolor_svg(SVG_TEMPLATE, all_ids_to_color, COLOR_ON, COLOR_OFF,stroke_on="#646E7D", stroke_width=1.0 )
     
     if not svg_bytes:
         print("[!] Не вдалося згенерувати SVG. Вихід.")
