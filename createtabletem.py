@@ -176,7 +176,7 @@ def add_text_to_image(
     text: str,
     font_path: Path,
     color: str = "#000000",
-    size: int = 24,
+    size: int = 43,
     x: int = 0,
     y: int = 0,
 ):
@@ -247,6 +247,14 @@ if __name__ == "__main__":
 
     # === Додаємо текст після рендеру ===
     if TEXT:
-        add_text_to_image(OUTPUT_PNG, TEXT, FONT_PATH, TEXT_COLOR, FONT_SIZE,x=255,y=863)
+        add_text_to_image(
+        OUTPUT_PNG,
+        text="23 жовтня, четвер",
+        font_path=FONT_PATH,
+        color="#646E7D",
+        size=43,
+        x=255,
+        y=863
+    )
     else:
         print("[i] Текст для додавання порожній, пропуск.")
