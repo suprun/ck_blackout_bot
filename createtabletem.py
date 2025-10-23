@@ -3,12 +3,7 @@
 
 from lxml import etree
 from pathlib import Path
-# --- ВИДАЛЕНО ---
-# import cairosvg
-# --- ДОДАНО ---
-from svglib.svglib import svg2rlg
-from reportlab.graphics import renderPM
-# --- КІНЕЦЬ ДОДАВАННЯ ---
+import cairosvg
 from PIL import Image, ImageDraw, ImageFont
 import re
 
@@ -59,10 +54,6 @@ def get_halfhour_ids(queue_id: str, intervals: list) -> list:
         h2, m2 = map(int, end.split(":"))
         start_min = h1 * 60 + m1
         end_min = h2 * 60 + m2
-        # Обережно з end_min: range не включає останнє значення.
-        # Якщо 19:00 - 21:00, end_min = 1260.
-        # range(start, 1260, 30) включатиме 1230 (20:30), але не 1260 (21:00)
-        # Це коректна логіка для 30-хвилинних блоків.
         for t in range(start_min, end_min, 30):
             hour = (t // 60) % 24
             half = "a" if (t % 60) < 30 else "b"
@@ -72,62 +63,36 @@ def get_halfhour_ids(queue_id: str, intervals: list) -> list:
 
 def recolor_svg(svg_path: Path, colored_ids: set, color_on: str, color_off: str) -> bytes:
     """Фарбує SVG: усі блоки -> color_off, потрібні ID -> color_on"""
-    # Використовуємо парсер, що зберігає порожній текст (для коректного форматування)
     parser = etree.XMLParser(remove_blank_text=False)
     tree = etree.parse(str(svg_path), parser)
     root = tree.getroot()
 
-    # Шукаємо всі елементи, що мають атрибут 'id'
     all_rects = root.xpath("//*[@id]")
     for el in all_rects:
         el_id = el.get("id")
         if not el_id:
             continue
-        
-        # Визначаємо колір
         color = color_on if el_id in colored_ids else color_off
-        
-        # Встановлюємо атрибут fill
         el.set("fill", color)
-        
-        # Також оновлюємо/додаємо fill у 'style', якщо він є
         style = el.get("style")
         if style:
             parts = style.split(";")
-            # Видаляємо старий 'fill'
             parts = [p for p in parts if not p.strip().startswith("fill:")]
-            # Додаємо новий 'fill'
             parts.append(f"fill:{color}")
             el.set("style", ";".join(parts))
 
     return etree.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
-# --- ФУНКЦІЮ ОНОВЛЕНО ---
-def svg_to_png(in_svg: Path, out_png: Path):
-    """Конвертує SVG у PNG за допомогою svglib+reportlab"""
-    try:
-        # Читаємо SVG-файл у об'єкт ReportLab Drawing
-        drawing = svg2rlg(str(in_svg))
-        
-        # Рендеримо Drawing у PNG-файл
-        # 'configPIL' дозволяє передати налаштування в Pillow
-        # 'transparent': 1 намагатиметься зберегти прозорий фон
-        renderPM.drawToFile(drawing, str(out_png), fmt="PNG", configPIL={'transparent': 1})
-        print(f"[✓] PNG створено: {out_png}")
-    except Exception as e:
-        print(f"[!] Помилка конвертації SVG в PNG: {e}")
-        print("[!] Можливо, потрібно встановити 'svglib' та 'reportlab': pip install svglib reportlab")
-# --- КІНЕЦЬ ОНОВЛЕННЯ ---
+def svg_to_png(svg_bytes: bytes, out_png: Path):
+    cairosvg.svg2png(bytestring=svg_bytes, write_to=str(out_png))
+    print(f"[✓] PNG створено: {out_png}")
 
 
+# === 🆕 ДОДАНО: малювання тексту на PNG ===
 def add_text_to_image(png_path: Path, text: str, font_path: Path, color: str = "#000", size: int = 24, position: str = "bottom"):
     """Додає текст (наприклад дату) до PNG"""
     img = Image.open(png_path)
-    # Переконуємось, що зображення в режимі RGBA для коректного малювання
-    if img.mode != 'RGBA':
-        img = img.convert('RGBA')
-        
     draw = ImageDraw.Draw(img)
 
     try:
@@ -136,16 +101,7 @@ def add_text_to_image(png_path: Path, text: str, font_path: Path, color: str = "
         font = ImageFont.load_default()
         print("[!] Не вдалося завантажити шрифт, використано стандартний.")
 
-    # --- ОНОВЛЕНО: Використання textbbox для точнішого визначення розміру ---
-    try:
-        # textbbox повертає (left, top, right, bottom)
-        bbox = draw.textbbox((0, 0), text, font=font)
-        text_w = bbox[2] - bbox[0] # Ширина = right - left
-        text_h = bbox[3] - bbox[1] # Висота = bottom - top
-    except AttributeError: 
-        # Фоллбек для старіших версій PIL
-        text_w, text_h = draw.textsize(text, font=font)
-    
+    text_w, text_h = draw.textsize(text, font=font)
     margin = 10
 
     if position == "bottom":
@@ -163,7 +119,7 @@ def add_text_to_image(png_path: Path, text: str, font_path: Path, color: str = "
 # ---------------------------------------------------------------
 if __name__ == "__main__":
     if not INPUT_TEXT.exists() or not SVG_TEMPLATE.exists():
-        print(f"Помилка: відсутній {INPUT_TEXT} або {SVG_TEMPLATE}")
+        print("Помилка: відсутній schedule.txt або template.svg")
         exit(1)
 
     schedule_text = INPUT_TEXT.read_text(encoding="utf-8")
@@ -178,14 +134,7 @@ if __name__ == "__main__":
     OUTPUT_SVG.write_bytes(svg_bytes)
     print(f"[✓] Модифікований SVG збережено: {OUTPUT_SVG}")
 
-    # --- ЗМІНЕНО ---
-    # Передаємо шлях до створеного SVG (OUTPUT_SVG), а не байти
-    svg_to_png(OUTPUT_SVG, OUTPUT_PNG)
-    # --- КІНЕЦЬ ЗМІН ---
+    svg_to_png(svg_bytes, OUTPUT_PNG)
 
     # === Додаємо текст після рендеру ===
-    # Додаємо перевірку, чи PNG файл було успішно створено
-    if OUTPUT_PNG.exists():
-        add_text_to_image(OUTPUT_PNG, TEXT, FONT_PATH, TEXT_COLOR, FONT_SIZE, TEXT_POSITION)
-    else:
-        print(f"[!] Не вдалося додати текст, оскільки {OUTPUT_PNG} не було створено.")
+    add_text_to_image(OUTPUT_PNG, TEXT, FONT_PATH, TEXT_COLOR, FONT_SIZE, TEXT_POSITION)
