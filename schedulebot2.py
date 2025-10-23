@@ -263,17 +263,22 @@ async def main():
 
         if now >= rollover_at:
             cancel_all_scheduled_tasks()
+
+            # === Переносимо розклад на завтра у сьогодні ===
             if SCHEDULE_TOMORROW_FILE.exists():
                 try:
-                    os.remove(SCHEDULE_TOMORROW_FILE)
-                    logging.info("🗑️ Видалено schedule_tomorrow.json після опівночі.")
+                    os.replace(SCHEDULE_TOMORROW_FILE, SCHEDULE_FILE)
+                    logging.info("🔄 Замінено schedule.json новим розкладом із schedule_tomorrow.json.")
                 except Exception as e:
-                    logging.error("❌ Не вдалося видалити schedule_tomorrow.json: %s", e)
+                    logging.error(f"❌ Помилка при заміні файлів: {e}")
+
+            # === Плануємо задачі для нового дня ===
+            schedule = load_json_file(SCHEDULE_FILE)
             await schedule_tasks_for(schedule, 0)
-            schedule, schedule_tomorrow, _ = load_schedules()
-            if schedule_tomorrow:
-                await schedule_tasks_for(schedule_tomorrow, 1)
+
+            # === Встановлюємо наступну північ ===
             rollover_at = next_midnight(now)
+
 
 
 if __name__ == "__main__":
