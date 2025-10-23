@@ -169,72 +169,43 @@ def svg_to_png(svg_bytes: bytes, out_png: Path):
 
 
 # === 🆕 ВИПРАВЛЕНО: малювання тексту на PNG ===
-def add_text_to_image(png_path: Path, text: str, font_path: Path, color: str = "#000", size: int = 24, position: str = "bottom"):
-    """Додає текст (наприклад дату) до PNG"""
-    if not png_path.exists():
-        print(f"[!] Помилка: PNG файл {png_path} не знайдено для додавання тексту.")
-        return
-        
-    try:
-        img = Image.open(png_path)
-        draw = ImageDraw.Draw(img)
-    except Exception as e:
-        print(f"[!] Помилка відкриття PNG: {e}")
-        return
+from PIL import Image, ImageDraw, ImageFont
 
+def add_text_to_image(
+    png_path: Path,
+    text: str,
+    font_path: Path,
+    color: str = "#000000",
+    size: int = 24,
+    x: int = 0,
+    y: int = 0,
+):
+    """
+    Додає текст на PNG.
+    Позиція x,y — координати нижнього лівого кута тексту (як у SVG).
+    """
+    img = Image.open(png_path)
+    draw = ImageDraw.Draw(img)
+
+    # Завантажуємо шрифт
     try:
         font = ImageFont.truetype(str(font_path), size)
     except Exception:
-        print("[!] Не вдалося завантажити шрифт, використано стандартний.")
         font = ImageFont.load_default()
+        print("[!] Не вдалося завантажити шрифт, використано стандартний.")
 
-    # --- ВИПРАВЛЕНО ---
-    # `draw.textsize()` було видалено в Pillow 10.0.0
-    # Використовуємо font.getlength() для ширини
-    try:
-        text_w = font.getlength(text)
-    except Exception:
-         # Фоллбек для старих версій Pillow або несподіваних помилок
-         text_w = len(text) * (size // 2)
+    # Вимірюємо висоту тексту
+    bbox = draw.textbbox((0, 0), text, font=font)
+    text_w = bbox[2] - bbox[0]
+    text_h = bbox[3] - bbox[1]
 
-    # Використовуємо font.getbbox() для отримання точних меж тексту (left, top, right, bottom)
-    # Це потрібно для коректного вертикального вирівнювання
-    try:
-        # getbbox може кинути помилку для порожніх рядків
-        if not text:
-            raise ValueError("Text is empty")
-        left, top, right, bottom = font.getbbox(text)
-    except (ValueError, AttributeError):
-        print("[!] Не вдалося отримати межі тексту (можливо, текст порожній).")
-        left, top, right, bottom = (0, 0, 0, size) # Припускаємо висоту = розміру шрифту
-    # --- КІНЕЦЬ ВИПРАВЛЕННЯ ---
+    # Pillow малює текст від верхнього лівого кута, тому коригуємо y
+    y_top = y - text_h
 
-    margin = 10
-
-    if position == "bottom":
-        # Горизонтальне центрування
-        x = (img.width - text_w) // 2
-        # --- ВИПРАВЛЕНО ---
-        # Вертикальне вирівнювання: від нижнього краю віднімаємо 'margin' 
-        # і висоту тексту ('bottom' з bbox)
-        y = img.height - bottom - margin
-        # --- КІНЕЦЬ ВИПРАВЛЕННЯ ---
-    else:  # top
-        # Горизонтальне центрування
-        x = (img.width - text_w) // 2
-        # --- ВИПРАВЛЕНО ---
-        # Вертикальне вирівнювання: 'margin' мінус 'top' з bbox 
-        # (оскільки 'top' може бути негативним)
-        y = margin - top
-        # --- КІНЕЦЬ ВИПРАВЛЕННЯ ---
-
-    draw.text((x, y), text, font=font, fill=color)
-    
-    try:
-        img.save(png_path)
-        print(f"[✓] Текст додано: {text}")
-    except Exception as e:
-        print(f"[!] Помилка збереження PNG з текстом: {e}")
+    # Малюємо текст
+    draw.text((x, y_top), text, font=font, fill=color)
+    img.save(png_path)
+    print(f"[✓] Текст '{text}' додано у позицію (x={x}, y={y}), розмір={size}px, колір={color}")
 
 
 # ---------------------------------------------------------------
@@ -276,6 +247,6 @@ if __name__ == "__main__":
 
     # === Додаємо текст після рендеру ===
     if TEXT:
-        add_text_to_image(OUTPUT_PNG, TEXT, FONT_PATH, TEXT_COLOR, FONT_SIZE, TEXT_POSITION)
+        add_text_to_image(OUTPUT_PNG, TEXT, FONT_PATH, TEXT_COLOR, FONT_SIZE, TEXT_POSITION,size=43,x=255,y=863)
     else:
         print("[i] Текст для додавання порожній, пропуск.")
