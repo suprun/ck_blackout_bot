@@ -84,7 +84,7 @@ def support_keyboard(back_cb: str):
 def unknown_keyboard(back_cb: str):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔍 Знайти адресу (Mini App)", web_app={"url": MINIAPP_URL})],
-        [InlineKeyboardButton("📄 Скачати графіки в PDF", callback_data="show_pdfs")],
+        [InlineKeyboardButton("📄 Переглянути графіки в PDF", callback_data="show_pdfs")],
         [InlineKeyboardButton("⬅️ Назад", callback_data=back_cb)],
         [InlineKeyboardButton("🏠 Головне меню", callback_data="main_menu")],
     ])
@@ -146,7 +146,7 @@ async def sub_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await db.commit()
     await query.edit_message_text(
-        f"🔌 ОК, перейдіть в канал \n«{QUEUE_EMOJI[int(queue)-1]} черга {'Ⅰ' if sub=='1' else 'Ⅱ'} підчерга», \nщоб отримувати сповіщення про відключення електроенергії:",
+        f"🔌 \nОК, перейдіть в канал \n«{QUEUE_EMOJI[int(queue)-1]} черга {'Ⅰ' if sub=='1' else 'Ⅱ'} підчерга» \n\nі отримуйте сповіщення про відключення електроенергії",
         reply_markup=subscription_keyboard(key),
     )
 
@@ -215,7 +215,7 @@ async def back_to_support_prev(update: Update, context: ContextTypes.DEFAULT_TYP
     if row and row[0] and row[1]:
         key = f"{row[0]}_{row[1]}"
         await query.edit_message_text(
-            f"ОК, перейдіть в канал \n«{QUEUE_EMOJI[int(row[0])-1]} черга {'Ⅰ' if row[1]==1 else 'Ⅱ'} підчерга», \nщоб отримувати сповіщення про відключення електроенергії.",
+            f"🔌 \nОК, перейдіть в канал \n«{QUEUE_EMOJI[int(row[0])-1]} черга {'Ⅰ' if row[1]==1 else 'Ⅱ'} підчерга» \n\nі отримуйте сповіщення про відключення електроенергії",
             reply_markup=subscription_keyboard(key),
         )
     else:
@@ -272,7 +272,7 @@ async def show_pdfs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(
-        "📄 Виберіть графік черги для завантаження:",
+        "📄 Виберіть графік черги для завантаження:\n⬇️",
         reply_markup=pdf_download_keyboard("unknown_queue")
     )
 

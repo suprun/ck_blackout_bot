@@ -162,7 +162,7 @@ async def schedule_tasks_for(schedule: dict, day_offset: int = 0):
             # ---- PRE-NOTICE (if ще не минуло) ----
             if pre_dt > now:
                 pre_text = (
-                    f"⏳ Через 5 хв вимкнення з {start_dt.strftime('%H:%M')} до {end_dt.strftime('%H:%M')}."
+                    f"⏳ Через 5 хв відключення з {start_dt.strftime('%H:%M')} до {end_dt.strftime('%H:%M')}."
                     
                 )
                 schedule_task(
@@ -177,7 +177,7 @@ async def schedule_tasks_for(schedule: dict, day_offset: int = 0):
 
             # ---- START (OFF) ----
             off_text = (
-                f"🔴 ВИМКНЕННЯ з {start_dt.strftime('%H:%M')} до 💡{end_dt.strftime('%H:%M')}."
+                f"🔴 ВІДКЛЮЕННЯ з {start_dt.strftime('%H:%M')} до 💡{end_dt.strftime('%H:%M')}."
             )
             schedule_task(
                 maybe_post_message(
@@ -193,7 +193,7 @@ async def schedule_tasks_for(schedule: dict, day_offset: int = 0):
             next_off = periods[i + 1][0] if i + 1 < len(periods) else None
             on_text = f"⚡ СВІТЛО УВІМКНЕНО о {end_dt.strftime('%H:%M')}."
             if next_off:
-                on_text += f"\n🔴 Наступне вимкнення о {next_off}"
+                on_text += f"\n🔴 Наступне відключення о {next_off}"
 
             schedule_task(
                 maybe_post_message(
