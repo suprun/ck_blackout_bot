@@ -16,7 +16,7 @@ OUTPUT_PNG = Path("colored.png")
 # === ПАРАМЕТРИ ===
 COLOR_ON = "#646E7D"      # колір відключення
 COLOR_OFF = "#FFDD1F"     # колір нормального стану
-TEXT = "23 жовтня, четвер" # текст для підпису
+TEXT = "24 жовтня, п'ятниця" # текст для підпису
 TEXT_COLOR = "#222222"     # колір тексту
 FONT_PATH = Path("RoadUI-SemiBold.otf") # шлях до файлу шрифту
 FONT_SIZE = 43             # розмір шрифту
@@ -249,12 +249,12 @@ if __name__ == "__main__":
     if TEXT:
         add_text_to_image(
         OUTPUT_PNG,
-        text="23 жовтня, четвер",
+        text="24 жовтня, п'ятниця",
         font_path=FONT_PATH,
         color="#646E7D",
-        size=43,
-        x=255,
-        y=863
+        size=57,
+        x=168,
+        y=120
     )
     else:
         print("[i] Текст для додавання порожній, пропуск.")
