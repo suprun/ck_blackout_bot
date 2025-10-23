@@ -19,7 +19,7 @@ COLOR_OFF = "#FFDD1F"     # колір нормального стану
 TEXT = "23 жовтня, четвер" # текст для підпису
 TEXT_COLOR = "#222222"     # колір тексту
 FONT_PATH = Path("RoadUI-SemiBold.otf") # шлях до файлу шрифту
-FONT_SIZE = 28             # розмір шрифту
+FONT_SIZE = 43             # розмір шрифту
 TEXT_POSITION = "bottom"   # "top" або "bottom"
 QUEUE_PATTERN = re.compile(r"^(\d+\.\d+)\s+(.+)$")
 
@@ -247,6 +247,6 @@ if __name__ == "__main__":
 
     # === Додаємо текст після рендеру ===
     if TEXT:
-        add_text_to_image(OUTPUT_PNG, TEXT, FONT_PATH, TEXT_COLOR, FONT_SIZE, TEXT_POSITION,size=43,x=255,y=863)
+        add_text_to_image(OUTPUT_PNG, TEXT, FONT_PATH, TEXT_COLOR, FONT_SIZE, TEXT_POSITION,x=255,y=863)
     else:
         print("[i] Текст для додавання порожній, пропуск.")
