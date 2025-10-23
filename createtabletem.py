@@ -99,56 +99,46 @@ def get_halfhour_ids(queue_id: str, intervals: list) -> list:
 
 
 def recolor_svg(svg_path: Path, colored_ids: set, color_on: str, color_off: str) -> bytes:
-    """Фарбує SVG: усі блоки -> color_off, потрібні ID -> color_on"""
-    try:
-        parser = etree.XMLParser(remove_blank_text=False)
-        tree = etree.parse(str(svg_path), parser)
-    except Exception as e:
-        print(f"[!] Помилка парсингу SVG: {e}")
-        return b""
-        
+    """
+    Фарбує SVG: усі блоки -> color_off, потрібні ID -> color_on
+    Працює і коли <rect> знаходяться всередині <g id="Layer_x0020_1">
+    """
+    parser = etree.XMLParser(remove_blank_text=False)
+    tree = etree.parse(str(svg_path), parser)
     root = tree.getroot()
 
-    # Шукаємо всі елементи з атрибутом id
-    all_elements_with_id = root.xpath("//*[@id]")
-    
-    colored_count = 0
-    total_count = 0
+    ns = {"svg": "http://www.w3.org/2000/svg"}
 
-    for el in all_elements_with_id:
+    # спробуємо знайти головний шар
+    layer = root.xpath(".//svg:g[@id='Layer_x0020_1']", namespaces=ns)
+    if layer:
+        elements = layer[0].xpath(".//svg:*[@id]", namespaces=ns)
+    else:
+        elements = root.xpath(".//svg:*[@id]", namespaces=ns)
+
+    count_total = 0
+    count_colored = 0
+
+    for el in elements:
         el_id = el.get("id")
         if not el_id:
             continue
-        
-        total_count += 1
-        
-        # Перевіряємо, чи ID починається з цифри (фільтруємо службові ID)
-        if not (el_id[0].isdigit() and ("." in el_id or "_" in el_id)):
-             continue
 
+        count_total += 1
         color = color_on if el_id in colored_ids else color_off
-        
-        if el_id in colored_ids:
-            colored_count += 1
 
-        # Встановлюємо 'fill' атрибут
+        # оновити атрибути fill + style
         el.set("fill", color)
-        
-        # Модифікуємо 'style' атрибут, якщо він є
         style = el.get("style")
         if style:
             parts = style.split(";")
-            # Видаляємо старий 'fill'
             parts = [p for p in parts if not p.strip().startswith("fill:")]
-            # Додаємо новий 'fill'
             parts.append(f"fill:{color}")
             el.set("style", ";".join(parts))
+        if el_id in colored_ids:
+            count_colored += 1
 
-    print(f"[i] Знайдено {total_count} елементів з ID. Розфарбовано {colored_count} блоків.")
-    if colored_count == 0 and len(colored_ids) > 0:
-        print(f"[!] Увага: Не вдалося знайти відповідники в SVG для {len(colored_ids)} ID з розкладу.")
-        # print(f"[Debug] ID з розкладу: {list(colored_ids)[:10]}...")
-
+    print(f"[✓] Знайдено {count_total} елементів, пофарбовано {count_colored}")
     return etree.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
