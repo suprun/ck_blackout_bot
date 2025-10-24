@@ -5,6 +5,7 @@ import time
 import random
 import logging
 import subprocess
+import asyncio
 import requests
 from bs4 import BeautifulSoup
 from html import unescape
@@ -203,7 +204,8 @@ def run_createtabletem():
         return False
 
 
-def send_image_to_channels(post_text: str, schedule_txt: str):
+# === Асинхронне надсилання зображення ===
+async def send_image_to_channels_async(post_text: str, schedule_txt: str):
     if not bot:
         log.warning("⚠️ BOT_TOKEN не вказано — публікація пропущена.")
         return
@@ -222,10 +224,14 @@ def send_image_to_channels(post_text: str, schedule_txt: str):
     for ch_id in channels:
         try:
             with open("colored.png", "rb") as img:
-                bot.send_photo(chat_id=ch_id, photo=img, caption=caption)
+                await bot.send_photo(chat_id=ch_id, photo=img, caption=caption)
             log.info(f"📤 Зображення надіслано у канал {ch_id}")
         except Exception as e:
             log.error(f"❌ Помилка надсилання у {ch_id}: {e}")
+
+
+def send_image_to_channels(post_text: str, schedule_txt: str):
+    asyncio.run(send_image_to_channels_async(post_text, schedule_txt))
 
 
 # ==================== MAIN LOOP ====================
