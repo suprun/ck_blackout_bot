@@ -18,6 +18,7 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 SCHEDULE_FILE = Path(os.getenv("SCHEDULE_FILE", "schedule.json"))
 SCHEDULE_TOMORROW_FILE = Path(os.getenv("SCHEDULE_TOMORROW_FILE", "schedule_tomorrow.json"))
 STATE_FILE = Path("bot_state.json")
+MAX_STATE_ENTRIES = 1000
 TIMEZONE = pytz.timezone(os.getenv("TIMEZONE", "Europe/Kyiv"))
 
 bot = Bot(token=BOT_TOKEN)
@@ -38,8 +39,13 @@ def load_state():
             return {}
     return {}
 
-
 def save_state(state):
+    # Якщо перевищено межу — видаляємо найстаріші ключі
+    if len(state) > MAX_STATE_ENTRIES:
+        oldest_keys = sorted(state.keys())[:len(state) - MAX_STATE_ENTRIES]
+        for k in oldest_keys:
+            del state[k]
+        logging.info(f"⚠️ Скорочено bot_state.json до {MAX_STATE_ENTRIES} записів.")
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
 
