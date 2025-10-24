@@ -7,6 +7,11 @@ import cairosvg
 from PIL import Image, ImageDraw, ImageFont
 import re
 
+from datetime import datetime
+import locale
+import pytz
+
+TABLEDATE_PATH = Path("tabledate.txt")
 # === ШЛЯХИ ===
 INPUT_TEXT = Path("schedule.txt")      # текст із розкладом
 SVG_TEMPLATE = Path("template.svg")    # SVG-шаблон
@@ -208,6 +213,37 @@ def add_text_to_image(
     print(f"[✓] Текст '{text}' додано у позицію (x={x}, y={y}), розмір={size}px, колір={color}")
 
 
+
+def get_ukrainian_date() -> str:
+    """Повертає поточну дату у форматі '24 жовтня, п’ятниця' (Київський час)."""
+    # Українські назви місяців і днів
+    months = [
+        "січня", "лютого", "березня", "квітня", "травня", "червня",
+        "липня", "серпня", "вересня", "жовтня", "листопада", "грудня"
+    ]
+    weekdays = [
+        "понеділок", "вівторок", "середа", "четвер",
+        "п’ятниця", "субота", "неділя"
+    ]
+
+    tz = pytz.timezone("Europe/Kyiv")
+    now = datetime.now(tz)
+    day = now.day
+    month = months[now.month - 1]
+    weekday = weekdays[now.weekday()]
+    return f"{day} {month}, {weekday}"
+
+# Читаємо або створюємо текст дати
+if TABLEDATE_PATH.exists():
+    tabledate_text = TABLEDATE_PATH.read_text(encoding="utf-8").strip()
+    if not tabledate_text:
+        tabledate_text = get_ukrainian_date()
+        print(f"[i] tabledate.txt порожній — використано поточну дату: {tabledate_text}")
+else:
+    tabledate_text = get_ukrainian_date()
+    print(f"[i] tabledate.txt не знайдено — використано поточну дату: {tabledate_text}")
+
+
 # ---------------------------------------------------------------
 if __name__ == "__main__":
     if not INPUT_TEXT.exists():
@@ -249,7 +285,7 @@ if __name__ == "__main__":
     if TEXT:
         add_text_to_image(
         OUTPUT_PNG,
-        text="24 жовтня, п'ятниця",
+        text=tabledate_text,
         font_path=FONT_PATH,
         color="#646E7D",
         size=57,
