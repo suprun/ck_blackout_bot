@@ -7,6 +7,9 @@ beautifulsoup4
 lxml
 aiohttp
 
+# --- Асинхронність ---
+nest_asyncio
+
 # --- Зображення / SVG / PDF ---
 Pillow
 cairosvg

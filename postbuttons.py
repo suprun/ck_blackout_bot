@@ -6,15 +6,14 @@ from telegram.ext import ApplicationBuilder
 
 # === Завантаження токена з .env ===
 load_dotenv()
-BOT_TOKEN = os.getenv("TEST_BOT_TOKEN")
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 # === Канал або чат ===
-CHAT_ID = "-1002930307928"   # 🔹 заміни на свій канал або чат
+CHANNELS = [c.strip() for c in os.getenv("CHANNELS", "").replace(" ", "").split(",") if c.strip()]
 
 # === Текст повідомлення ===
 MESSAGE_TEXT = (
-    "💡 Всі черги відключень у Черкаській області:\n"
-    "👇 Посилання на канали"
+    "👉 Всі канали для інших черг відключення:"
 )
 
 # === Inline-кнопки для черг і підчерг ===
@@ -51,16 +50,21 @@ keyboard = [
 reply_markup = InlineKeyboardMarkup(keyboard)
 
 # === Відправлення повідомлення ===
-async def main():
+async def send_to_all():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-    await app.bot.send_message(
-        chat_id=CHAT_ID,
-        text=MESSAGE_TEXT,
-        parse_mode="HTML",
-        reply_markup=reply_markup,
-        disable_notification=True
-    )
-    print("✅ Повідомлення з кнопками успішно надіслано!")
+
+    for channel in CHANNELS:
+        try:
+            await app.bot.send_message(
+                chat_id=channel,
+                text=MESSAGE_TEXT,
+                parse_mode="HTML",
+                reply_markup=reply_markup,
+                disable_notification=True,  # 🔕 без сповіщення
+            )
+            print(f"✅ Надіслано в {channel}")
+        except Exception as e:
+            print(f"❌ Помилка для {channel}: {e}")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(send_to_all())

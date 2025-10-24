@@ -136,11 +136,6 @@ async def schedule_tasks_for(schedule: dict, day_offset: int = 0):
     date_str = "сьогодні" if day_offset == 0 else "завтра"
     logging.info("📅 Планування постів на %s...", date_str)
 
-    # Якщо плануємо на сьогодні — перевіримо, чи є графік на завтра
-    tomorrow_schedule = {}
-    if day_offset == 0 and SCHEDULE_TOMORROW_FILE.exists():
-        tomorrow_schedule = load_json_file(SCHEDULE_TOMORROW_FILE)
-
     for friendly_name, data in schedule.items():
         if not isinstance(data, dict):
             continue
@@ -149,38 +144,26 @@ async def schedule_tasks_for(schedule: dict, day_offset: int = 0):
             continue
         periods = data.get("periods", [])
 
-        # Якщо плануємо сьогодні і є графік на завтра для цієї черги
-        tomorrow_periods = []
-        if day_offset == 0 and friendly_name in tomorrow_schedule:
-            tomorrow_periods = tomorrow_schedule[friendly_name].get("periods", [])
-
         for i, (start_str, end_str) in enumerate(periods):
             start_dt = day_timestr_to_datetime(start_str, day_offset)
             end_dt = day_timestr_to_datetime(end_str, day_offset)
 
-            # === Перехід через північ ===
+            # Перехід через північ
             if end_dt <= start_dt:
                 end_dt += timedelta(days=1)
 
-            # Якщо цей період закінчується рівно о 00:00 і наступний день має 00:00 початок — об'єднати
-            if tomorrow_periods:
-                tomorrow_first = day_timestr_to_datetime(tomorrow_periods[0][0], 1)
-                if end_dt.hour == 0 and end_dt.minute == 0 and tomorrow_first.hour == 0 and tomorrow_first.minute == 0:
-                    # Вважаємо як одне тривале відключення
-                    logging.info(f"🔗 Об'єднано період {friendly_name}: {start_str}-{tomorrow_periods[0][1]} через північ")
-                    end_dt = day_timestr_to_datetime(tomorrow_periods[0][1], 1)
-                    # Видаляємо перший період із завтрашнього
-                    tomorrow_periods.pop(0)
+            # ⏳ Попередження за 5 хв до початку
+            pre_dt = start_dt - timedelta(minutes=5)
 
-            # Пропускаємо події, які вже минули
+            # Пропустити події, що вже минули повністю
             if end_dt < now:
                 continue
 
-            # ⏳ Попередження за 5 хв до початку
-            pre_dt = start_dt - timedelta(minutes=5)
+            # ---- PRE-NOTICE (if ще не минуло) ----
             if pre_dt > now:
                 pre_text = (
                     f"⏳ Через 5 хв відключення з {start_dt.strftime('%H:%M')} до {end_dt.strftime('%H:%M')}."
+                    
                 )
                 schedule_task(
                     maybe_post_message(
@@ -192,8 +175,10 @@ async def schedule_tasks_for(schedule: dict, day_offset: int = 0):
                     )
                 )
 
-            # 🔴 Початок
-            off_text = f"🔴 ВІДКЛЮЧЕННЯ з {start_dt.strftime('%H:%M')} до 💡{end_dt.strftime('%H:%M')}."
+            # ---- START (OFF) ----
+            off_text = (
+                f"🔴 ВІДКЛЮЕННЯ з {start_dt.strftime('%H:%M')} до 💡{end_dt.strftime('%H:%M')}."
+            )
             schedule_task(
                 maybe_post_message(
                     channel,
@@ -204,22 +189,11 @@ async def schedule_tasks_for(schedule: dict, day_offset: int = 0):
                 )
             )
 
-            # 🟢 Кінець
-            next_off = None
-
-            # Якщо є наступний період сьогодні
-            if i + 1 < len(periods):
-                next_off = periods[i + 1][0]
-            # Якщо ні — дивимось графік на завтра
-            elif tomorrow_periods:
-                next_off = tomorrow_periods[0][0]
-
+            # ---- END (ON) ----
+            next_off = periods[i + 1][0] if i + 1 < len(periods) else None
             on_text = f"⚡ СВІТЛО УВІМКНЕНО о {end_dt.strftime('%H:%M')}."
             if next_off:
-                if day_offset == 0 and tomorrow_periods and next_off == tomorrow_periods[0][0]:
-                    on_text += f"\n🔴 Наступне відключення завтра о {next_off}"
-                else:
-                    on_text += f"\n🔴 Наступне відключення о {next_off}"
+                on_text += f"\n🔴 Наступне відключення о {next_off}"
 
             schedule_task(
                 maybe_post_message(
@@ -281,18 +255,9 @@ async def main():
 
         if changed:
             cancel_all_scheduled_tasks()
-
-            # 🔁 Перепланування задач
-            # Якщо змінився schedule.json — плануємо сьогодні
-            if schedule:
-                await schedule_tasks_for(schedule, 0)
-
-            # Якщо змінився schedule_tomorrow.json — плануємо обидва, щоб оновити “завтра”
+            await schedule_tasks_for(schedule, 0)
             if schedule_tomorrow:
                 await schedule_tasks_for(schedule_tomorrow, 1)
-                # 🔄 Також переплановуємо сьогодні, бо повідомлення “наступне завтра” могли змінитись
-                await schedule_tasks_for(schedule, 0)
-
             rollover_at = next_midnight(now)
             continue
 
