@@ -118,7 +118,8 @@ def extract_date(text: str):
 
 def parse_schedule(text: str):
     result = {}
-    lines = []
+    grouped_lines = {}
+
     for line in text.splitlines():
         line = line.strip()
         if not re.match(r"^\d+\.\d+", line):
@@ -126,19 +127,32 @@ def parse_schedule(text: str):
         m = re.match(r"^(\d+\.\d+)\s+(.+)$", line)
         if not m:
             continue
+
         key, rest = m.groups()
         periods = re.findall(r"(\d{1,2}:\d{2})\s*[-–—]\s*(\d{1,2}:\d{2})", rest)
         if not periods:
             periods = re.findall(r"(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})", rest)
-        if periods:
-            result[key] = {
-                "_comment": f"Черга {key} ⚡",
-                "channel_id": CHANNEL_IDS.get(key, 0),
-                "periods": periods
-            }
-            periods_text = ", ".join(f"{a} - {b}" for a, b in periods)
-            lines.append(f"{key} {periods_text}")
-    return result, "\n".join(lines)
+        if not periods:
+            continue
+
+        # Зберігаємо для JSON
+        result[key] = {
+            "_comment": f"Черга {key} ⚡",
+            "channel_id": CHANNEL_IDS.get(key, 0),
+            "periods": periods
+        }
+
+        # Формуємо рядок для тексту
+        group = key.split(".")[0]  # перша частина, наприклад "1"
+        periods_text = ", ".join(f"{a} - {b}" for a, b in periods)
+        grouped_lines.setdefault(group, []).append(f"{key} {periods_text}")
+
+    # Об’єднуємо всі групи з відступом між ними
+    schedule_txt = "\n\n".join(
+        "\n".join(lines) for group, lines in sorted(grouped_lines.items(), key=lambda x: int(x[0]))
+    )
+
+    return result, schedule_txt
 
 
 def save_schedule(schedule, date_obj):
@@ -222,7 +236,7 @@ async def send_image_to_channels_async(post_text: str, schedule_txt: str):
     prefix = prefix.replace(
         "Години відсутності електропостачання по чергам (підчергам):", ""
     ).strip()
-    caption = f"{prefix}\n\n{schedule_txt}\n\n💡Сповіщення про відключення по всім чергам тут: @ck_blackout_bot\""
+    caption = f"{prefix}\n\n{schedule_txt}\n\n💡Сповіщення про відключення по всім чергам тут: @ck_blackout_bot"
 
     for ch_id in channels:
         try:
