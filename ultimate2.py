@@ -23,7 +23,7 @@ PROCESSED_FILE = Path("processed.json")
 LOG_FILE = os.getenv("LOG_FILE", "parser.log")
 SAVE_EMPTY_AS_CHECKED = os.getenv("SAVE_EMPTY_POSTS_AS_CHECKED", "true").lower() in ("1", "true", "yes")
 MAX_HISTORY = int(os.getenv("MAX_HISTORY", 1000))
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")  # токен бота для постингу
+BOT_TOKEN = os.getenv("TEST_BOT_TOKEN")  # токен бота для постингу
 
 bot = Bot(token=BOT_TOKEN) if BOT_TOKEN else None
 
@@ -219,7 +219,10 @@ async def send_image_to_channels_async(post_text: str, schedule_txt: str):
         channels = CHANNEL_IDS.values()
 
     prefix = post_text.split("1.1")[0].strip() if "1.1" in post_text else post_text[:200]
-    caption = f"{prefix}\n\n{schedule_txt}\n\n⚡ Деталі на сторінці АТ \"Черкасиобленерго\""
+    prefix = prefix.replace(
+        "Години відсутності електропостачання по чергам (підчергам):", ""
+    ).strip()
+    caption = f"{prefix}\n\n{schedule_txt}\n\n💡Сповіщення про відключення по всім чергам тут: @ck_blackout_bot\""
 
     for ch_id in channels:
         try:
