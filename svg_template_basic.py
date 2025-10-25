@@ -1,6 +1,6 @@
 from pathlib import Path
 
-OUTPUT_SVG = Path("template.svg")
+OUTPUT_SVG = Path("img/template_basic.svg")
 
 CELL_W = 20
 CELL_H = 10

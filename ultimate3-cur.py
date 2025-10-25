@@ -24,7 +24,7 @@ LOG_FILE = os.getenv("LOG_FILE", "parser.log")
 SAVE_EMPTY_AS_CHECKED = os.getenv("SAVE_EMPTY_POSTS_AS_CHECKED", "true").lower() in ("1", "true", "yes")
 MAX_HISTORY = int(os.getenv("MAX_HISTORY", 1000))
 BOT_TOKEN = os.getenv("TEST_BOT_TOKEN")  # токен бота для постингу
-
+CURRENT_SCHEDULE_IMG = Path("img/colored.png")  # поточне згенероване зображення
 bot = Bot(token=BOT_TOKEN) if BOT_TOKEN else None
 
 CHANNEL_IDS = {
@@ -271,7 +271,7 @@ async def send_image_to_channels_async(post_text: str, schedule_txt: str, date_o
 
     for ch_id in channels:
         try:
-            with open("colored.png", "rb") as img:
+            with open(CURRENT_SCHEDULE_IMG, "rb") as img:
                 msg = await bot.send_photo(chat_id=ch_id, photo=img, caption=caption)
 
             # === Формуємо посилання на пост ===
@@ -347,6 +347,36 @@ def send_special_messages(post_text: str):
         asyncio.run(send_special_message_async(template, post_text))
     return True
 
+"""def apply_mute_from_phrase(text: str):
+    
+    Аналізує текст поста і вмикає / вимикає mute для певних каналів.
+    mute.json зберігає {channel_id: bool}.
+    
+    text_lower = text.lower()
+    mute_path = Path("mute.json")
+
+    # === Завантажуємо або створюємо початковий стан ===
+    if mute_path.exists():
+        mute_data = json.loads(mute_path.read_text(encoding="utf-8"))
+    else:
+        mute_data = {str(cid): False for cid in CHANNEL_IDS.values()}
+
+    # === Усі канали ===
+    all_channels = list(CHANNEL_IDS.values())
+
+    changed = False
+
+    # === Правила ===
+    if any(p in text_lower for p in ["без відключень", "не буде відключень", "відключення не передбачається"]):
+        for ch in all_channels:
+            mute_data[str(ch)] = True
+        log.info("🔕 MUTE: усі канали вимкнені (без відключень).")
+        changed = True
+
+    if changed:
+        mute_path.write_text(json.dumps(mute_data, ensure_ascii=False, indent=2), encoding="utf-8")
+        log.info("💾 mute.json оновлено.")
+"""
 
 # ==================== MAIN LOOP ====================
 def main():
@@ -373,6 +403,8 @@ def main():
                     save_processed(processed)
                     log.info(f"✅ {pid} — спецповідомлення оброблено.")
                     continue  # пропускаємо стандартну обробку
+                
+                # apply_mute_from_phrase(text)
 
                 # === Звичайна логіка для постів із графіком ===
 

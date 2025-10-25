@@ -22,6 +22,7 @@ MAX_STATE_ENTRIES = 1000
 TIMEZONE = pytz.timezone(os.getenv("TIMEZONE", "Europe/Kyiv"))
 
 POST_LINKS_FILE = Path("post_links_today.json")
+POST_LINKS_TOMORROW_FILE = Path("post_links_tomorrow.json")
 
 bot = Bot(token=BOT_TOKEN)
 
@@ -91,6 +92,36 @@ def load_json_file(file_path: Path) -> dict:
     except Exception as e:
         logging.error("❌ Помилка читання %s: %s", file_path, e)
         return {}
+
+MUTE_FILE = Path("json/mute.json")
+MUTE_CACHE = {}
+MUTE_MTIME = None
+
+def is_muted(channel_id: int) -> bool:
+    """Повертає True, якщо для каналу встановлено mute у mute.json."""
+    global MUTE_CACHE, MUTE_MTIME
+
+    if not MUTE_FILE.exists():
+        return False
+
+    mtime = MUTE_FILE.stat().st_mtime
+    if not MUTE_CACHE or mtime != MUTE_MTIME:
+        try:
+            with open(MUTE_FILE, "r", encoding="utf-8") as f:
+                MUTE_CACHE = json.load(f)
+            MUTE_MTIME = mtime
+            logging.info("🔁 Оновлено mute.json")
+        except Exception as e:
+            logging.error(f"❌ Помилка читання mute.json: {e}")
+            return False
+
+    # Підтримка обох типів форматів (словник або список)
+    if isinstance(MUTE_CACHE, dict):
+        return str(channel_id) in MUTE_CACHE and bool(MUTE_CACHE[str(channel_id)])
+    if isinstance(MUTE_CACHE, list):
+        return channel_id in MUTE_CACHE or str(channel_id) in MUTE_CACHE
+    return False
+
 
 def get_post_link_for_channel(channel_id: int) -> str | None:
     """Повертає посилання на графік для каналу або None, якщо не знайдено."""
@@ -241,7 +272,7 @@ async def schedule_tasks_for(schedule: dict, day_offset: int = 0):
             elif tomorrow_periods:
                 next_off = tomorrow_periods[0][0]
 
-            on_text = f"⚡ СВІТЛО УВІМКНЕНО {'об' if end_dt.hour == 11 else 'о'} {end_dt.strftime('%H:%M')}."
+            on_text = f"⚡ СВІТЛО ВМИКАЮТЬ {'об' if end_dt.hour == 11 else 'о'} {end_dt.strftime('%H:%M')}."
             if next_off:
                 if day_offset == 0 and tomorrow_periods and next_off == tomorrow_periods[0][0]:
                     on_text += f"\n🔴 Наступне відключення завтра {'об' if end_dt.hour == 11 else 'о'} {next_off}"
@@ -274,6 +305,11 @@ async def maybe_post_message(channel_id, friendly_name, text, send_time, event_t
         logging.info("⏩ Пропущено дубльоване повідомлення: %s", key)
         return
 
+    # Перевіряємо mute
+    if is_muted(channel_id):
+        logging.info(f"🔇 Сповіщення вимкнене для каналу {channel_id}")
+        return
+    
     await post_message(channel_id, text)
     bot_state[key] = True
     save_state(bot_state)
@@ -333,6 +369,16 @@ async def main():
                     logging.info("🔄 Замінено schedule.json новим розкладом із schedule_tomorrow.json.")
                 except Exception as e:
                     logging.error(f"❌ Помилка при заміні файлів: {e}")
+
+            # === Переносимо посилання на пости (сьогодні ← завтра) ===     
+            if POST_LINKS_TOMORROW_FILE.exists():
+                try:
+                    os.replace(POST_LINKS_TOMORROW_FILE, POST_LINKS_FILE)
+                    logging.info("🔄 Замінено post_links_today.json новим із post_links_tomorrow.json.")
+                except Exception as e:
+                    logging.error(f"❌ Помилка при заміні файлів постів: {e}")
+            else:
+                logging.warning("⚠️ Файл post_links_tomorrow.json відсутній — залишено попередній post_links_today.json.")
 
             # === Плануємо задачі для нового дня ===
             schedule = load_json_file(SCHEDULE_FILE)

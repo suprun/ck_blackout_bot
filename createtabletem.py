@@ -14,16 +14,16 @@ import pytz
 TABLEDATE_PATH = Path("tabledate.txt")
 # === ШЛЯХИ ===
 INPUT_TEXT = Path("schedule.txt")      # текст із розкладом
-SVG_TEMPLATE = Path("template.svg")    # SVG-шаблон
-OUTPUT_SVG = Path("colored.svg")
-OUTPUT_PNG = Path("colored.png")
+SVG_TEMPLATE = Path("img/template.svg")    # SVG-шаблон
+OUTPUT_SVG = Path("img/colored.svg")
+OUTPUT_PNG = Path("img/colored.png")
 
 # === ПАРАМЕТРИ ===
 COLOR_ON = "#646E7D"      # колір відключення
 COLOR_OFF = "#FFDD1F"     # колір нормального стану
 TEXT = "24 жовтня, п'ятниця" # текст для підпису
 TEXT_COLOR = "#222222"     # колір тексту
-FONT_PATH = Path("RoadUI-SemiBold.otf") # шлях до файлу шрифту
+FONT_PATH = Path("img/RoadUI-SemiBold.otf") # шлях до файлу шрифту
 FONT_SIZE = 43             # розмір шрифту
 TEXT_POSITION = "bottom"   # "top" або "bottom"
 QUEUE_PATTERN = re.compile(r"^(\d+\.\d+)\s+(.+)$")
