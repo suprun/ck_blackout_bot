@@ -21,6 +21,8 @@ STATE_FILE = Path("bot_state.json")
 MAX_STATE_ENTRIES = 1000
 TIMEZONE = pytz.timezone(os.getenv("TIMEZONE", "Europe/Kyiv"))
 
+POST_LINKS_FILE = Path("post_links_today.json")
+
 bot = Bot(token=BOT_TOKEN)
 
 last_schedule_mtime = None
@@ -89,6 +91,20 @@ def load_json_file(file_path: Path) -> dict:
     except Exception as e:
         logging.error("❌ Помилка читання %s: %s", file_path, e)
         return {}
+
+def get_post_link_for_channel(channel_id: int) -> str | None:
+    """Повертає посилання на графік для каналу або None, якщо не знайдено."""
+    if not POST_LINKS_FILE.exists():
+        return None
+    try:
+        with open(POST_LINKS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            for entry in data:
+                if entry.get("channel_id") == channel_id:
+                    return entry.get("post_link")
+    except Exception as e:
+        logging.error(f"❌ Помилка читання post_links_today.json: {e}")
+    return None
 
 
 def load_schedules() -> tuple[dict, dict, bool]:
@@ -200,6 +216,11 @@ async def schedule_tasks_for(schedule: dict, day_offset: int = 0):
 
             # 🔴 Початок
             off_text = f"🔴 ВІДКЛЮЧЕННЯ з {start_dt.strftime('%H:%M')} до 💡{end_dt.strftime('%H:%M')}."
+            # Додаємо посилання на пост, якщо воно є
+            post_link = get_post_link_for_channel(channel)
+            if post_link:
+                off_text += f"\n\n📅 <b>Графік на сьогодні:</b> {post_link}"
+
             schedule_task(
                 maybe_post_message(
                     channel,
@@ -220,12 +241,12 @@ async def schedule_tasks_for(schedule: dict, day_offset: int = 0):
             elif tomorrow_periods:
                 next_off = tomorrow_periods[0][0]
 
-            on_text = f"⚡ СВІТЛО УВІМКНЕНО о {end_dt.strftime('%H:%M')}."
+            on_text = f"⚡ СВІТЛО УВІМКНЕНО {'об' if end_dt.hour == 11 else 'о'} {end_dt.strftime('%H:%M')}."
             if next_off:
                 if day_offset == 0 and tomorrow_periods and next_off == tomorrow_periods[0][0]:
-                    on_text += f"\n🔴 Наступне відключення завтра о {next_off}"
+                    on_text += f"\n🔴 Наступне відключення завтра {'об' if end_dt.hour == 11 else 'о'} {next_off}"
                 else:
-                    on_text += f"\n🔴 Наступне відключення о {next_off}"
+                    on_text += f"\n🔴 Наступне відключення {'об' if end_dt.hour == 11 else 'о'} {next_off}"
 
             schedule_task(
                 maybe_post_message(

@@ -74,6 +74,28 @@ def save_processed(data):
             data[key] = data[key][-MAX_HISTORY:]
     PROCESSED_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
+def save_post_link(filename: str, channel_id: int, post_link: str):
+    """
+    Зберігає посилання на пост у файл post_links_today.json або post_links_tomorrow.json
+    """
+    try:
+        path = Path(filename)
+        if path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
+        else:
+            data = []
+
+        entry = {
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "channel_id": channel_id,
+            "post_link": post_link
+        }
+        data.append(entry)
+
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        log.info(f"📝 Посилання збережено у {filename}: {post_link}")
+    except Exception as e:
+        log.error(f"⚠️ Помилка запису посилання у {filename}: {e}")
 
 def fetch_html(url):
     headers = {"User-Agent": "Mozilla/5.0 (compatible; TelegramParser/1.0)"}
@@ -219,7 +241,7 @@ def run_createtabletem():
 
 
 # === Асинхронне надсилання зображення ===
-async def send_image_to_channels_async(post_text: str, schedule_txt: str):
+async def send_image_to_channels_async(post_text: str, schedule_txt: str, date_obj=None):
     if not bot:
         log.warning("⚠️ BOT_TOKEN не вказано — публікація пропущена.")
         return
@@ -238,17 +260,34 @@ async def send_image_to_channels_async(post_text: str, schedule_txt: str):
     ).strip()
     caption = f"{prefix}\n\n{schedule_txt}\n\n💡Сповіщення про відключення по всім чергам тут: @ck_blackout_bot"
 
+    # === Визначаємо, у який файл зберігати посилання ===
+    today = datetime.now().date()
+    if date_obj and date_obj.date() == today:
+        links_file = "post_links_today.json"
+    elif date_obj and date_obj.date() == today + timedelta(days=1):
+        links_file = "post_links_tomorrow.json"
+    else:
+        links_file = f"post_links_{date_obj.strftime('%d%m')}.json" if date_obj else "post_links_misc.json"
+
     for ch_id in channels:
         try:
             with open("colored.png", "rb") as img:
-                await bot.send_photo(chat_id=ch_id, photo=img, caption=caption)
+                msg = await bot.send_photo(chat_id=ch_id, photo=img, caption=caption)
+
+            # === Формуємо посилання на пост ===
+            if msg.chat.username:
+                post_link = f"https://t.me/{msg.chat.username}/{msg.message_id}"
+            else:
+                post_link = f"https://t.me/c/{str(msg.chat.id).replace('-100', '')}/{msg.message_id}"
+
+            save_post_link(links_file, ch_id, post_link)
             log.info(f"📤 Зображення надіслано у канал {ch_id}")
         except Exception as e:
             log.error(f"❌ Помилка надсилання у {ch_id}: {e}")
 
+def send_image_to_channels(post_text: str, schedule_txt: str, date_obj=None):
+    asyncio.run(send_image_to_channels_async(post_text, schedule_txt, date_obj))
 
-def send_image_to_channels(post_text: str, schedule_txt: str):
-    asyncio.run(send_image_to_channels_async(post_text, schedule_txt))
 
 
 # ==================== СПЕЦІАЛЬНІ ФРАЗИ ====================
@@ -352,7 +391,7 @@ def main():
                 create_schedule_txt(schedule_txt)
 
                 if run_createtabletem():
-                    send_image_to_channels(text, schedule_txt)
+                    send_image_to_channels(text, schedule_txt, date_obj)
                 else:
                     log.warning("⚠️ Зображення не створено, публікація пропущена.")
 
