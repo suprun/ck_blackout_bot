@@ -262,9 +262,10 @@ async def schedule_tasks_for(schedule: dict, day_offset: int = 0):
             # 🔴 Початок
             off_text = f"🔴 ВІДКЛЮЧЕННЯ з {start_dt.strftime('%H:%M')} до 💡{end_dt.strftime('%H:%M')}."
             # Додаємо посилання на пост, якщо воно є
-            post_link = get_post_link_for_channel(channel)
-            if post_link:
-                off_text += f"\n\n📅 <b>Графік на сьогодні:</b> {post_link}"
+            if SCHEDULE_TOMORROW_FILE.exists():
+                post_link = get_post_link_for_channel(channel)
+                if post_link:
+                    off_text += f"\n\n📅 <b>Графік на сьогодні:</b> {post_link}"
 
             schedule_task(
                 maybe_post_message(

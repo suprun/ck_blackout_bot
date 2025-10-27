@@ -23,7 +23,7 @@ PROCESSED_FILE = Path("processed.json")
 LOG_FILE = os.getenv("LOG_FILE", "parser.log")
 SAVE_EMPTY_AS_CHECKED = os.getenv("SAVE_EMPTY_POSTS_AS_CHECKED", "true").lower() in ("1", "true", "yes")
 MAX_HISTORY = int(os.getenv("MAX_HISTORY", 1000))
-BOT_TOKEN = os.getenv("TEST_BOT_TOKEN")  # токен бота для постингу
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")  # токен бота для постингу
 CURRENT_SCHEDULE_IMG = Path("img/colored.png")  # поточне згенероване зображення
 bot = Bot(token=BOT_TOKEN) if BOT_TOKEN else None
 
@@ -43,15 +43,17 @@ MONTHS = {
 }
 
 # ==================== LOGGING ====================
+from logging.handlers import TimedRotatingFileHandler
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
     handlers=[
-        logging.FileHandler(LOG_FILE, encoding="utf-8"),
+        TimedRotatingFileHandler(LOG_FILE, when="midnight", backupCount=7, encoding="utf-8"),
         logging.StreamHandler()
     ]
 )
-log = logging.getLogger("parser")
+
 
 
 # ==================== HELPERS ====================
@@ -76,32 +78,31 @@ def save_processed(data):
 
 def save_post_link(filename: str, channel_id: int, post_link: str):
     """
-    Зберігає посилання на пост у файл post_links_today.json або post_links_tomorrow.json
+    Зберігає посилання на пост у файл (повністю перезаписує при кожному новому запуску).
+    Використовується для збереження тільки актуальних постів з останнього графіка.
     """
     try:
         path = Path(filename)
-        if path.exists():
-            data = json.loads(path.read_text(encoding="utf-8"))
-        else:
-            data = []
 
-        entry = {
+        # === Якщо вже існує тимчасовий список — читаємо ===
+        if "_temp_links" not in globals():
+            globals()["_temp_links"] = []
+
+        # === Додаємо нове посилання у тимчасовий список ===
+        globals()["_temp_links"].append({
             "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "channel_id": channel_id,
             "post_link": post_link
-        }
-        data.append(entry)
+        })
 
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        log.info(f"📝 Посилання збережено у {filename}: {post_link}")
+        # === Якщо ми вже обійшли всі канали — перезаписуємо файл ===
+        # (викликається для кожного каналу, тому після останнього збережеться все одразу)
+        path.write_text(json.dumps(globals()["_temp_links"], ensure_ascii=False, indent=2), encoding="utf-8")
+
+        log.info(f"📝 Оновлено {filename} — {len(globals()['_temp_links'])} посилань збережено.")
     except Exception as e:
-        log.error(f"⚠️ Помилка запису посилання у {filename}: {e}")
+        log.error(f"⚠️ Помилка запису посилань у {filename}: {e}")
 
-def fetch_html(url):
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; TelegramParser/1.0)"}
-    r = requests.get(url, headers=headers, timeout=20)
-    r.raise_for_status()
-    return r.text
 
 
 def extract_posts_from_channel_html(html: str):
@@ -286,7 +287,9 @@ async def send_image_to_channels_async(post_text: str, schedule_txt: str, date_o
             log.error(f"❌ Помилка надсилання у {ch_id}: {e}")
 
 def send_image_to_channels(post_text: str, schedule_txt: str, date_obj=None):
-    asyncio.run(send_image_to_channels_async(post_text, schedule_txt, date_obj))
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(send_image_to_channels_async(post_text, schedule_txt, date_obj))
 
 
 
@@ -343,9 +346,14 @@ def send_special_messages(post_text: str):
     if not templates:
         return False
 
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+    asyncio.set_event_loop(loop)
+
     for template in templates:
-        asyncio.run(send_special_message_async(template, post_text))
+        loop.run_until_complete(send_special_message_async(template, post_text))
+
     return True
+
 
 """def apply_mute_from_phrase(text: str):
     
