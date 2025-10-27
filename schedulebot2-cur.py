@@ -76,10 +76,23 @@ def local_now() -> datetime:
     return datetime.now(TIMEZONE)
 
 
-def day_timestr_to_datetime(timestr: str, day_offset: int = 0) -> datetime:
+def day_timestr_to_datetime(timestr: str, day_offset: int = 0, is_end: bool = False) -> datetime:
+    """Конвертує рядок 'HH:MM' у datetime з урахуванням часового поясу.
+       Якщо це кінець періоду (is_end=True) і час 00:00, вважається наступним днем.
+    """
     now = local_now()
     hour, minute = map(int, timestr.split(":"))
-    date = now.date() + timedelta(days=day_offset)
+
+    extra_day = 0
+    # Якщо "24:00" — явно наступна доба
+    if hour == 24:
+        hour = 0
+        extra_day = 1
+    # Якщо "00:00" і це кінець періоду — вважаємо наступний день
+    elif hour == 0 and minute == 0 and is_end:
+        extra_day = 1
+
+    date = now.date() + timedelta(days=day_offset + extra_day)
     return TIMEZONE.localize(datetime.combine(date, time(hour, minute)))
 
 
@@ -208,8 +221,9 @@ async def schedule_tasks_for(schedule: dict, day_offset: int = 0):
             tomorrow_periods = tomorrow_schedule[friendly_name].get("periods", [])
 
         for i, (start_str, end_str) in enumerate(periods):
-            start_dt = day_timestr_to_datetime(start_str, day_offset)
-            end_dt = day_timestr_to_datetime(end_str, day_offset)
+            start_dt = day_timestr_to_datetime(start_str, day_offset, is_end=False)
+            end_dt = day_timestr_to_datetime(end_str, day_offset, is_end=True)
+
 
             # === Перехід через північ ===
             if end_dt <= start_dt:
