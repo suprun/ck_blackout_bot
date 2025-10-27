@@ -106,6 +106,16 @@ def save_post_link(filename: str, channel_id: int, post_link: str):
     except Exception as e:
         log.error(f"⚠️ Помилка запису посилань у {filename}: {e}")
 
+def fetch_html(url):
+    """Завантажує HTML сторінки Telegram-каналу."""
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; TelegramParser/1.0)"}
+    try:
+        r = requests.get(url, headers=headers, timeout=20)
+        r.raise_for_status()
+        return r.text
+    except requests.RequestException as e:
+        log.error(f"⚠️ Помилка запиту Telegram: {e}")
+        return ""
 
 
 def extract_posts_from_channel_html(html: str):
