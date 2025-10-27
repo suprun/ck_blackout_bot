@@ -45,6 +45,8 @@ MONTHS = {
 # ==================== LOGGING ====================
 from logging.handlers import TimedRotatingFileHandler
 
+LOG_FILE = os.getenv("LOG_FILE", "parser.log")
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
@@ -53,6 +55,7 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
+log = logging.getLogger("parser")
 
 
 
