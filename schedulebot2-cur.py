@@ -52,6 +52,31 @@ def save_state(state):
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
 
+def cleanup_bot_state(days: int = 1):
+    """Видаляє з bot_state усі записи, дата яких старша за N днів."""
+    global bot_state
+    cutoff_date = (local_now() - timedelta(days=days)).date()
+
+    new_state = {}
+    removed = 0
+    for key, value in bot_state.items():
+        try:
+            # Наприклад: "1.1_off_16:00_18:00_2025-10-25"
+            date_part = key.split("_")[-1]
+            event_date = datetime.strptime(date_part, "%Y-%m-%d").date()
+            if event_date >= cutoff_date:
+                new_state[key] = value
+            else:
+                removed += 1
+        except Exception:
+            # Якщо формат не підходить — зберігаємо (щоб не втратити нічого випадково)
+            new_state[key] = value
+
+    if removed:
+        logging.info(f"🧹 Очищено {removed} старих записів із bot_state.json (старше {days} діб).")
+        bot_state = new_state
+        save_state(bot_state)
+
 
 def cleanup_state(state, days: int = 10):
     cutoff = datetime.now() - timedelta(days=days)
@@ -215,40 +240,34 @@ async def schedule_tasks_for(schedule: dict, day_offset: int = 0):
             continue
         periods = data.get("periods", [])
 
-        # Якщо плануємо сьогодні і є графік на завтра для цієї черги
         tomorrow_periods = []
         if day_offset == 0 and friendly_name in tomorrow_schedule:
             tomorrow_periods = tomorrow_schedule[friendly_name].get("periods", [])
 
         for i, (start_str, end_str) in enumerate(periods):
-            start_dt = day_timestr_to_datetime(start_str, day_offset, is_end=False)
-            end_dt = day_timestr_to_datetime(end_str, day_offset, is_end=True)
-
+            start_dt = day_timestr_to_datetime(start_str, day_offset)
+            end_dt = day_timestr_to_datetime(end_str, day_offset)
 
             # === Перехід через північ ===
             if end_dt <= start_dt:
                 end_dt += timedelta(days=1)
 
-            # Якщо цей період закінчується рівно о 00:00 і наступний день має 00:00 початок — об'єднати
+            # Якщо період закінчується в 00:00 і завтра починається з 00:00 — об’єднуємо
             if tomorrow_periods:
                 tomorrow_first = day_timestr_to_datetime(tomorrow_periods[0][0], 1)
                 if end_dt.hour == 0 and end_dt.minute == 0 and tomorrow_first.hour == 0 and tomorrow_first.minute == 0:
-                    # Вважаємо як одне тривале відключення
                     logging.info(f"🔗 Об'єднано період {friendly_name}: {start_str}-{tomorrow_periods[0][1]} через північ")
                     end_dt = day_timestr_to_datetime(tomorrow_periods[0][1], 1)
-                    # Видаляємо перший період із завтрашнього
                     tomorrow_periods.pop(0)
 
-            # Пропускаємо події, які вже минули
+            # Пропускаємо події, що вже минули
             if end_dt < now:
                 continue
 
-            # ⏳ Попередження за 5 хв до початку
+            # --- Попередження за 5 хв ---
             pre_dt = start_dt - timedelta(minutes=5)
             if pre_dt > now:
-                pre_text = (
-                    f"⏳ Через 5 хв відключення з {start_dt.strftime('%H:%M')} до {end_dt.strftime('%H:%M')}."
-                )
+                pre_text = f"⏳ Через 5 хв відключення з {start_dt.strftime('%H:%M')} до {end_dt.strftime('%H:%M')}."
                 schedule_task(
                     maybe_post_message(
                         channel,
@@ -256,16 +275,21 @@ async def schedule_tasks_for(schedule: dict, day_offset: int = 0):
                         pre_text,
                         pre_dt,
                         f"pre_{day_offset}",
+                        start_str=start_str,
+                        end_str=end_str,
                     )
                 )
 
-            # 🔴 Початок
-            off_text = f"🔴 ВІДКЛЮЧЕННЯ з {start_dt.strftime('%H:%M')} до 💡{end_dt.strftime('%H:%M')}."
-            # Додаємо посилання на пост, якщо воно є
-            if SCHEDULE_TOMORROW_FILE.exists():
-                post_link = get_post_link_for_channel(channel)
-                if post_link:
-                    off_text += f"\n\n📅 <b>Графік на сьогодні:</b> {post_link}"
+            # --- Початок відключення ---
+            off_text = (
+                f"🔴 ВІДКЛЮЧЕННЯ {'об' if start_dt.hour == 11 else 'о'} {start_dt.strftime('%H:%M')} "
+                f"до 💡{end_dt.strftime('%H:%M')}."
+            )
+            # Додаємо посилання на пост, якщо файл на завтра існує
+            #if SCHEDULE_TOMORROW_FILE.exists():
+            #    post_link = get_post_link_for_channel(channel)
+            #   if post_link:
+            #        off_text += f"\n\n📅 <b>Графік на сьогодні:</b> {post_link}"
 
             schedule_task(
                 maybe_post_message(
@@ -274,20 +298,19 @@ async def schedule_tasks_for(schedule: dict, day_offset: int = 0):
                     off_text,
                     start_dt,
                     f"off_{day_offset}",
+                    start_str=start_str,
+                    end_str=end_str,
                 )
             )
 
-            # 🟢 Кінець
+            # --- Кінець відключення ---
             next_off = None
-
-            # Якщо є наступний період сьогодні
             if i + 1 < len(periods):
                 next_off = periods[i + 1][0]
-            # Якщо ні — дивимось графік на завтра
             elif tomorrow_periods:
                 next_off = tomorrow_periods[0][0]
 
-            on_text = f"⚡ СВІТЛО ВМИКАЮТЬ {'об' if end_dt.hour == 11 else 'о'} {end_dt.strftime('%H:%M')}."
+            on_text = f"⚡ СВІТЛО УВІМКНЕНО {'об' if end_dt.hour == 11 else 'о'} {end_dt.strftime('%H:%M')}."
             if next_off:
                 if day_offset == 0 and tomorrow_periods and next_off == tomorrow_periods[0][0]:
                     on_text += f"\n🔴 Наступне відключення завтра {'об' if end_dt.hour == 11 else 'о'} {next_off}"
@@ -301,13 +324,16 @@ async def schedule_tasks_for(schedule: dict, day_offset: int = 0):
                     on_text,
                     end_dt,
                     f"on_{day_offset}",
+                    start_str=start_str,
+                    end_str=end_str,
                 )
             )
 
     logging.info("✅ Задачі на %s створено.", date_str)
 
 
-async def maybe_post_message(channel_id, friendly_name, text, send_time, event_type):
+
+async def maybe_post_message(channel_id, friendly_name, text, send_time, event_type, start_str=None, end_str=None):
     delay = (send_time - local_now()).total_seconds()
     if delay > 0:
         try:
@@ -315,16 +341,20 @@ async def maybe_post_message(channel_id, friendly_name, text, send_time, event_t
         except asyncio.CancelledError:
             return
 
-    key = f"{friendly_name}_{event_type}_{send_time.strftime('%Y-%m-%d_%H:%M')}"
-    if bot_state.get(key):
-        logging.info("⏩ Пропущено дубльоване повідомлення: %s", key)
-        return
+    # 🔹 Новий стабільний ключ — без мікросекунд і timezone-зсувів
+    date_str = send_time.strftime("%Y-%m-%d")
+    key = f"{friendly_name}_{event_type}_{start_str}_{end_str or ''}_{date_str}"
 
-    # Перевіряємо mute
+    # 🔇 Перевіряємо mute
     if is_muted(channel_id):
         logging.info(f"🔇 Сповіщення вимкнене для каналу {channel_id}")
         return
-    
+
+    # ⏩ Уникаємо дублів
+    if bot_state.get(key):
+        logging.info(f"⏩ Пропущено дубльоване повідомлення: {key}")
+        return
+
     await post_message(channel_id, text)
     bot_state[key] = True
     save_state(bot_state)
@@ -358,6 +388,7 @@ async def main():
         now = local_now()
 
         if changed:
+            cleanup_bot_state(days=2)
             cancel_all_scheduled_tasks()
 
             # 🔁 Перепланування задач
@@ -376,6 +407,7 @@ async def main():
 
         if now >= rollover_at:
             cancel_all_scheduled_tasks()
+            cleanup_bot_state(days=2)
 
             # === Переносимо розклад на завтра у сьогодні ===
             if SCHEDULE_TOMORROW_FILE.exists():
